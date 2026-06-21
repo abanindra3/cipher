@@ -113,9 +113,10 @@ class JarvisWindow(QMainWindow):
                     f"Wake word: {settings.wake_word}",
                     f"Wake engine: {settings.wake_word_engine}",
                     f"Voice auth enabled: {settings.voice_auth_enabled}",
-                    f"Reasoning model: {settings.openai_reasoning_model}",
-                    f"Transcription model: {settings.openai_transcribe_model}",
-                    f"TTS model: {settings.openai_tts_model}",
+                    f"Reasoning provider: Gemini",
+                    f"Reasoning model: {settings.gemini_model}",
+                    "Speech recognition: local microphone + free Google recognizer",
+                    "TTS: local male robotic pyttsx3 voice",
                     "",
                     "Edit .env to change settings, then restart JARVIS.",
                 ]
@@ -246,4 +247,3 @@ QLabel#Title {
   color: #f7fafc;
 }
 """
-

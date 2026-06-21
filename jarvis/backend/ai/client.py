@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
-from openai import OpenAI
-
+from jarvis.backend.ai.gemini_client import (
+    GeminiClient,
+    GeminiRateLimitError,
+    extract_function_calls,
+    extract_text,
+    first_model_content,
+)
+from jarvis.backend.ai.local_router import LocalCommandRouter
 from jarvis.backend.ai.memory_extractor import MemoryExtractor
 from jarvis.backend.ai.prompts import SYSTEM_PROMPT, memory_context
-from jarvis.backend.core.config import settings
 from jarvis.backend.core.logging import get_logger
 from jarvis.backend.db.repositories import ConversationRepository, MemoryRepository
 from jarvis.backend.tools import build_registry
@@ -35,55 +39,91 @@ class AssistantEngine:
         self.conversations = conversations or ConversationRepository()
         self.memories = memories or MemoryRepository()
         self.tools = tools or build_registry()
+        self.local_router = LocalCommandRouter(self.tools)
         self.extractor = MemoryExtractor(self.memories)
-        self.client = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+        self.client = GeminiClient()
 
     def respond(self, text: str, conversation_id: int | None = None) -> AssistantResult:
         conversation_id = self.conversations.ensure(conversation_id)
         remembered = self.extractor.extract(text)
         self.conversations.add_message(conversation_id, "user", text)
 
-        if not self.client:
+        local = self.local_router.try_handle(text)
+        if local:
+            reply, tool_results = local
+            self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results, "local": True})
+            return AssistantResult(conversation_id, reply, tool_results, remembered)
+
+        if not self.client.enabled:
             reply, tool_results = self._offline_response(text)
             self.conversations.add_message(conversation_id, "assistant", reply)
             return AssistantResult(conversation_id, reply, tool_results, remembered)
 
         history = self.conversations.history(conversation_id)
-        input_items: list[dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": memory_context(self.memories.all())},
-            *history,
-        ]
+        contents = self._gemini_contents(history)
+        system_text = f"{SYSTEM_PROMPT}\n\n{memory_context(self.memories.all())}"
 
         tool_results: list[dict[str, Any]] = []
-        response = self.client.responses.create(
-            model=settings.openai_reasoning_model,
-            input=input_items,
-            tools=self.tools.schemas(),
-        )
+        try:
+            response = self.client.generate(
+                contents=contents,
+                function_declarations=self.tools.gemini_function_declarations(),
+                system_text=system_text,
+            )
+        except GeminiRateLimitError:
+            reply, tool_results = self._offline_response(text)
+            reply = f" limited  {reply}"
+            self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results})
+            return AssistantResult(conversation_id, reply, tool_results, remembered)
 
         for _ in range(4):
-            calls = [item for item in response.output if getattr(item, "type", None) == "function_call"]
+            calls = extract_function_calls(response)
             if not calls:
                 break
-            next_input: list[dict[str, Any]] = []
+            model_content = first_model_content(response)
+            if model_content:
+                contents.append(model_content)
             for call in calls:
-                args = json.loads(call.arguments or "{}")
-                result = self.tools.run(call.name, args)
-                tool_results.append({"name": call.name, "arguments": args, "result": result})
-                next_input.append(
-                    {"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(result)}
+                name = call.get("name", "")
+                args = call.get("args") or {}
+                result = self.tools.run(name, args)
+                tool_results.append({"name": name, "arguments": args, "result": result})
+                function_response = {
+                    "name": name,
+                    "response": {"result": result},
+                }
+                if call.get("id"):
+                    function_response["id"] = call["id"]
+                contents.append(
+                    {
+                        "role": "user",
+                        "parts": [{"functionResponse": function_response}],
+                    }
                 )
-            response = self.client.responses.create(
-                model=settings.openai_reasoning_model,
-                input=next_input,
-                previous_response_id=response.id,
-                tools=self.tools.schemas(),
-            )
+            try:
+                response = self.client.generate(
+                    contents=contents,
+                    function_declarations=self.tools.gemini_function_declarations(),
+                    system_text=system_text,
+                )
+            except GeminiRateLimitError:
+                reply = "I completed the local action. Gemini is rate limited, so I cannot add a detailed explanation right now."
+                self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results})
+                return AssistantResult(conversation_id, reply, tool_results, remembered)
 
-        reply = getattr(response, "output_text", "") or "I completed the request."
+        reply = extract_text(response) or "I completed the request."
         self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results})
         return AssistantResult(conversation_id, reply, tool_results, remembered)
+
+    def _gemini_contents(self, history: list[dict[str, str]]) -> list[dict[str, Any]]:
+        contents: list[dict[str, Any]] = []
+        for item in history:
+            role = item["role"]
+            if role == "system":
+                continue
+            gemini_role = "model" if role == "assistant" else "user"
+            contents.append({"role": gemini_role, "parts": [{"text": item["content"]}]})
+        return contents
 
     def _offline_response(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         lowered = text.lower()
@@ -114,8 +154,7 @@ class AssistantEngine:
             return "Good morning. I can prepare the full briefing once weather and calendar providers are configured. I fetched the configured news feed.", tool_results
 
         return (
-            "I am running in local fallback mode because OPENAI_API_KEY is not set. "
-            "I can still open common apps, search Google, log memories, and expose the REST API.",
+            "in local  "
+            ".",
             tool_results,
         )
-

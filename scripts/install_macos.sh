@@ -7,7 +7,7 @@ python3 -m venv .venv
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "Created .env. Add OPENAI_API_KEY before full voice use."
+  echo "Created .env. Add GEMINI_API_KEY before full AI use."
 fi
 
 echo "Install complete. Run: ./scripts/run_macos.sh"

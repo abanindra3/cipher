@@ -15,16 +15,21 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./jarvis.db"
     log_level: str = "INFO"
 
-    openai_api_key: str | None = None
-    openai_reasoning_model: str = "gpt-5.5"
-    openai_transcribe_model: str = "gpt-4o-transcribe"
-    openai_tts_model: str = "gpt-4o-mini-tts"
-    openai_tts_voice: str = "coral"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
 
     wake_word: str = "Cipher"
+    wake_word_aliases: str = "cipher,cypher,sipher,sifer,safer,sypher,cifer"
+    wake_listen_seconds: int = 5
+    wake_debug: bool = True
     wake_word_engine: str = Field(default="text", pattern="^(text|porcupine)$")
-    voice_auth_enabled: bool = False
+    voice_auth_enabled: bool = True
     voice_profile_path: Path = Path("./data/voiceprint.npy")
+    voice_auth_threshold: float = 0.55
+    voice_reject_message: str = "Voice not authorized. I can only respond to my owner."
+    tts_rate: int = 165
+    tts_volume: float = 0.95
 
     openweather_api_key: str | None = None
     news_rss_url: str = "https://www.thehindu.com/news/national/feeder/default.rss"
@@ -38,4 +43,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

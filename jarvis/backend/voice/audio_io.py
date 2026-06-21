@@ -8,6 +8,8 @@ import numpy as np
 import speech_recognition as sr
 import sounddevice as sd
 
+from jarvis.backend.core.config import settings
+
 
 class MicrophoneRecorder:
     def __init__(self, phrase_time_limit: int = 8, sample_rate: int = 16_000) -> None:
@@ -20,9 +22,13 @@ class MicrophoneRecorder:
         self._record_wav(path, self.phrase_time_limit)
         return path
 
-    def recognize_local_text(self) -> str:
+    def record_wake_phrase(self) -> Path:
         path = Path(tempfile.gettempdir()) / "jarvis_wake_check.wav"
-        self._record_wav(path, 4)
+        self._record_wav(path, settings.wake_listen_seconds)
+        return path
+
+    def recognize_local_text(self) -> str:
+        path = self.record_wake_phrase()
         with sr.AudioFile(str(path)) as source:
             audio = self.recognizer.record(source)
         try:

@@ -1,37 +1,48 @@
 from __future__ import annotations
 
-import tempfile
+import platform
+import shutil
+import subprocess
 from pathlib import Path
 
 import pyttsx3
-from openai import OpenAI
 
 from jarvis.backend.core.config import settings
 
 
 class TextToSpeech:
     def __init__(self) -> None:
-        self.client = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+        self.use_macos_say = platform.system().lower() == "darwin" and shutil.which("say")
+        self.engine = None
+        if not self.use_macos_say:
+            self.engine = pyttsx3.init()
+            self.engine.setProperty("rate", settings.tts_rate)
+            self.engine.setProperty("volume", settings.tts_volume)
+            self._select_male_voice()
 
     def speak(self, text: str) -> Path | None:
-        if self.client:
-            return self._speak_openai(text)
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
+        spoken = self._robotic_text(text)
+        if self.use_macos_say:
+            subprocess.run(
+                ["say", "-v", "Daniel", "-r", str(settings.tts_rate), spoken],
+                check=False,
+            )
+            return None
+        if self.engine:
+            self.engine.say(spoken)
+            self.engine.runAndWait()
         return None
 
-    def _speak_openai(self, text: str) -> Path:
-        path = Path(tempfile.gettempdir()) / "jarvis_response.mp3"
-        with self.client.audio.speech.with_streaming_response.create(
-            model=settings.openai_tts_model,
-            voice=settings.openai_tts_voice,
-            input=text,
-            instructions="Speak like a composed, warm personal AI assistant.",
-        ) as response:
-            response.stream_to_file(path)
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-        return path
+    def _select_male_voice(self) -> None:
+        if not self.engine:
+            return
+        voices = self.engine.getProperty("voices") or []
+        preferred = ["daniel", "alex", "fred", "ralph", "tom", "male"]
+        for voice in voices:
+            name = f"{getattr(voice, 'name', '')} {getattr(voice, 'id', '')}".lower()
+            if any(token in name for token in preferred):
+                self.engine.setProperty("voice", voice.id)
+                return
 
+    def _robotic_text(self, text: str) -> str:
+        return " ".join(text.replace(".", ". ").replace(",", ", ").split())

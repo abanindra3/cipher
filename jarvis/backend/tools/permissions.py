@@ -19,7 +19,11 @@ class PermissionDecision:
 
 
 class PermissionLayer:
-    destructive_names = {"close_app", "delete_file", "run_process"}
+    destructive_names = {
+        "close_app",
+        "delete_file",
+        "run_process",
+    }
 
     def decide(self, tool_name: str, args: dict[str, Any]) -> PermissionDecision:
         if tool_name in self.destructive_names:
@@ -38,4 +42,3 @@ class PermissionLayer:
                 return PermissionDecision(PermissionLevel.DENY, "File does not exist.")
 
         return PermissionDecision(PermissionLevel.SAFE, "Allowed.")
-

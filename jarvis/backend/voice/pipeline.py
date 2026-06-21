@@ -23,6 +23,17 @@ class VoicePipeline:
         text = self.stt.transcribe(audio)
         if not text:
             text = self.recorder.recognize_local_text()
+        return self.process_text(text, conversation_id)
+
+    def process_text(self, text: str, conversation_id: int | None = None) -> dict:
+        if not text.strip():
+            self.tts.speak("I could not hear the command clearly.")
+            return {
+                "conversation_id": conversation_id,
+                "transcript": text,
+                "response": "I could not hear the command clearly.",
+                "tools": [],
+            }
         result = self.engine.respond(text, conversation_id)
         self.tts.speak(result.text)
         return {

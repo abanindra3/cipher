@@ -7,8 +7,7 @@ python -m venv .venv
 
 if (!(Test-Path ".env")) {
   Copy-Item ".env.example" ".env"
-  Write-Host "Created .env. Add OPENAI_API_KEY before full voice use."
+  Write-Host "Created .env. Add GEMINI_API_KEY before full AI use."
 }
 
 Write-Host "Install complete. Run: .\.venv\Scripts\jarvis.exe"
-

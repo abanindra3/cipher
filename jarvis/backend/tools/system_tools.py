@@ -26,6 +26,7 @@ WINDOWS_APP_ALIASES = {
 MAC_APP_ALIASES = {
     "chrome": "Google Chrome",
     "google chrome": "Google Chrome",
+    "safari": "Safari",
     "vscode": "Visual Studio Code",
     "vs code": "Visual Studio Code",
     "visual studio code": "Visual Studio Code",
@@ -44,11 +45,21 @@ def open_app(name: str) -> dict[str, Any]:
         _popen(app if isinstance(app, str) else [app])
     elif system == "darwin":
         app = MAC_APP_ALIASES.get(name.lower(), name)
+        if name.lower() in MAC_APP_ALIASES and not _mac_app_exists(app):
+            return {"error": f"Application not found: {app}"}
         _popen(["open", "-a", app])
     else:
         app = name
         _popen([app])
     return {"message": f"Opening {name}"}
+
+
+def _mac_app_exists(app: str) -> bool:
+    candidates = [
+        Path("/Applications") / f"{app}.app",
+        Path.home() / "Applications" / f"{app}.app",
+    ]
+    return any(path.exists() for path in candidates)
 
 
 def close_app(name: str) -> dict[str, Any]:
@@ -73,6 +84,24 @@ def google_search(query: str) -> dict[str, Any]:
     url = f"https://www.google.com/search?q={quote_plus(query)}"
     webbrowser.open(url)
     return {"message": f"Searching Google for {query}", "url": url}
+
+
+def open_safari(url: str | None = None) -> dict[str, Any]:
+    target = url or "https://www.google.com"
+    if not target.startswith(("http://", "https://")):
+        target = "https://" + target
+    if platform.system().lower() == "darwin":
+        if not _mac_app_exists("Safari"):
+            return {"error": "Safari is not installed or is not in /Applications."}
+        _popen(["open", "-a", "Safari", target])
+    else:
+        webbrowser.open(target)
+    return {"message": f"Opened Safari at {target}", "url": target}
+
+
+def safari_search(query: str) -> dict[str, Any]:
+    url = f"https://www.google.com/search?q={quote_plus(query)}"
+    return open_safari(url)
 
 
 def open_youtube(query: str | None = None) -> dict[str, Any]:
@@ -111,3 +140,25 @@ def create_folder(path: str) -> dict[str, Any]:
 def create_reminder(text: str, time: str) -> dict[str, Any]:
     NotificationRepository().add("reminder", "Reminder created", f"{text} at {time}")
     return {"message": f"Reminder saved: {text} at {time}"}
+
+
+def facetime_call(target: str) -> dict[str, Any]:
+    url = f"facetime://{quote_plus(target)}"
+    webbrowser.open(url)
+    return {"message": f"Opening FaceTime call to {target}", "url": url}
+
+
+def send_sms(target: str, message: str) -> dict[str, Any]:
+    separator = "&" if platform.system().lower() == "darwin" else "?"
+    url = f"sms:{quote_plus(target)}{separator}body={quote_plus(message)}"
+    webbrowser.open(url)
+    return {"message": f"Opening Messages to {target}", "url": url}
+
+
+def open_whatsapp_message(phone: str, message: str) -> dict[str, Any]:
+    cleaned = "".join(ch for ch in phone if ch.isdigit())
+    if not cleaned:
+        return {"error": "A phone number with country code is required for WhatsApp."}
+    url = f"https://wa.me/{cleaned}?text={quote_plus(message)}"
+    webbrowser.open(url)
+    return {"message": f"Opening WhatsApp message to {phone}", "url": url}

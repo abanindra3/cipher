@@ -27,6 +27,13 @@ class ToolDefinition:
             "parameters": self.parameters,
         }
 
+    def gemini_schema(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+        }
+
 
 class ToolRegistry:
     def __init__(
@@ -43,6 +50,9 @@ class ToolRegistry:
 
     def schemas(self) -> list[dict[str, Any]]:
         return [tool.openai_schema() for tool in self._tools.values()]
+
+    def gemini_function_declarations(self) -> list[dict[str, Any]]:
+        return [tool.gemini_schema() for tool in self._tools.values()]
 
     def run(self, name: str, args: dict[str, Any], confirmed: bool = False) -> dict[str, Any]:
         if name not in self._tools:
@@ -72,4 +82,3 @@ class ToolRegistry:
             result = {"error": str(exc)}
             self.logs.add(name, args, result, "error")
             return result
-
