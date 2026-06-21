@@ -1,0 +1,2 @@
+"""JARVIS desktop AI assistant."""
+
