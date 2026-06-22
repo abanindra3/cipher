@@ -16,11 +16,11 @@ def test_gemini_tool_declarations_are_exposed():
 
 
 def test_assistant_fallback_mentions_gemini_when_key_missing(monkeypatch, tmp_path):
-    monkeypatch.setattr("jarvis.backend.ai.gemini_client.settings.gemini_api_key", None)
     engine = AssistantEngine()
-    result = engine.respond("hello")
+    engine.client.api_key = None
+    result = engine.respond("ask gemini hello")
 
-    assert "GEMINI_API_KEY" in result.text
+    assert "without Gemini" in result.text
 
 
 def test_local_command_bypasses_gemini(monkeypatch):
@@ -44,6 +44,29 @@ def test_rate_limit_does_not_crash(monkeypatch):
     monkeypatch.setattr("jarvis.backend.ai.gemini_client.settings.gemini_api_key", "test-key")
     monkeypatch.setattr("jarvis.backend.ai.gemini_client.GeminiClient.generate", rate_limited)
 
-    result = AssistantEngine().respond("tell me something interesting")
+    monkeypatch.setattr("jarvis.backend.ai.client.settings.use_gemini_by_default", True)
+    result = AssistantEngine().respond("ask gemini tell me something interesting")
 
     assert "rate limited" in result.text.lower()
+
+
+def test_basic_replies_do_not_need_gemini(monkeypatch):
+    monkeypatch.setattr("jarvis.backend.ai.gemini_client.settings.gemini_api_key", "test-key")
+    result = AssistantEngine().respond("good evening")
+    assert "Good evening" in result.text
+
+
+def test_name_memory_local_reply():
+    result = AssistantEngine().respond("my name is Abanindra")
+    assert "Abanindra" in result.text
+
+
+def test_youtube_query_routes_locally(monkeypatch):
+    monkeypatch.setattr("jarvis.backend.tools.system_tools._open_url", lambda _url: None)
+    result = AssistantEngine().respond("open laxmikant polity video on youtube")
+    assert result.tool_results[0]["name"] == "open_youtube"
+
+
+def test_reminder_routes_locally():
+    result = AssistantEngine().respond("remind me to revise polity in 1 minute")
+    assert result.tool_results[0]["name"] == "create_reminder"

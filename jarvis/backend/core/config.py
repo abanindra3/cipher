@@ -18,13 +18,15 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.5-flash"
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+    use_gemini_by_default: bool = False
+    user_name: str = "Abanindra"
 
     wake_word: str = "Cipher"
     wake_word_aliases: str = "cipher,cypher,sipher,sifer,safer,sypher,cifer"
     wake_listen_seconds: int = 5
     wake_debug: bool = True
     wake_word_engine: str = Field(default="text", pattern="^(text|porcupine)$")
-    voice_auth_enabled: bool = True
+    voice_auth_enabled: bool = False
     voice_profile_path: Path = Path("./data/voiceprint.npy")
     voice_auth_threshold: float = 0.55
     voice_reject_message: str = "Voice not authorized. I can only respond to my owner."

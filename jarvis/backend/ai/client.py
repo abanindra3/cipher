@@ -13,6 +13,7 @@ from jarvis.backend.ai.gemini_client import (
 from jarvis.backend.ai.local_router import LocalCommandRouter
 from jarvis.backend.ai.memory_extractor import MemoryExtractor
 from jarvis.backend.ai.prompts import SYSTEM_PROMPT, memory_context
+from jarvis.backend.core.config import settings
 from jarvis.backend.core.logging import get_logger
 from jarvis.backend.db.repositories import ConversationRepository, MemoryRepository
 from jarvis.backend.tools import build_registry
@@ -39,7 +40,7 @@ class AssistantEngine:
         self.conversations = conversations or ConversationRepository()
         self.memories = memories or MemoryRepository()
         self.tools = tools or build_registry()
-        self.local_router = LocalCommandRouter(self.tools)
+        self.local_router = LocalCommandRouter(self.tools, self.memories)
         self.extractor = MemoryExtractor(self.memories)
         self.client = GeminiClient()
 
@@ -47,17 +48,22 @@ class AssistantEngine:
         conversation_id = self.conversations.ensure(conversation_id)
         remembered = self.extractor.extract(text)
         self.conversations.add_message(conversation_id, "user", text)
+        force_gemini = text.lower().strip().startswith(("ask gemini ", "gemini "))
+        gemini_text = self._strip_gemini_prefix(text) if force_gemini else text
 
-        local = self.local_router.try_handle(text)
+        local = None if force_gemini else self.local_router.try_handle(text)
         if local:
             reply, tool_results = local
             self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results, "local": True})
             return AssistantResult(conversation_id, reply, tool_results, remembered)
 
-        if not self.client.enabled:
+        if not self.client.enabled or (not settings.use_gemini_by_default and not force_gemini):
             reply, tool_results = self._offline_response(text)
             self.conversations.add_message(conversation_id, "assistant", reply)
             return AssistantResult(conversation_id, reply, tool_results, remembered)
+
+        if force_gemini and gemini_text != text:
+            self.conversations.add_message(conversation_id, "user", gemini_text, {"gemini_prompt": True})
 
         history = self.conversations.history(conversation_id)
         contents = self._gemini_contents(history)
@@ -72,7 +78,7 @@ class AssistantEngine:
             )
         except GeminiRateLimitError:
             reply, tool_results = self._offline_response(text)
-            reply = f" limited  {reply}"
+            reply = f"Gemini is rate limited right now. {reply}"
             self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results})
             return AssistantResult(conversation_id, reply, tool_results, remembered)
 
@@ -115,6 +121,14 @@ class AssistantEngine:
         self.conversations.add_message(conversation_id, "assistant", reply, {"tool_results": tool_results})
         return AssistantResult(conversation_id, reply, tool_results, remembered)
 
+    @staticmethod
+    def _strip_gemini_prefix(text: str) -> str:
+        lowered = text.lower().strip()
+        for prefix in ("ask gemini ", "gemini "):
+            if lowered.startswith(prefix):
+                return text.strip()[len(prefix) :].strip()
+        return text
+
     def _gemini_contents(self, history: list[dict[str, str]]) -> list[dict[str, Any]]:
         contents: list[dict[str, Any]] = []
         for item in history:
@@ -154,7 +168,7 @@ class AssistantEngine:
             return "Good morning. I can prepare the full briefing once weather and calendar providers are configured. I fetched the configured news feed.", tool_results
 
         return (
-            "in local  "
-            ".",
+            "I can handle local actions, reminders, notes, greetings, YouTube, weather, and free web lookups without Gemini. "
+            "For deeper AI reasoning, say 'ask Gemini' when quota is available.",
             tool_results,
         )

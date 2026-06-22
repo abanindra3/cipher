@@ -102,3 +102,11 @@ class NotificationRepository:
             (text, due_at.isoformat()),
         )
 
+    def due_reminders(self, now: datetime) -> list[dict[str, Any]]:
+        return self.db.query(
+            "SELECT * FROM reminders WHERE delivered = 0 AND due_at <= ? ORDER BY due_at",
+            (now.isoformat(),),
+        )
+
+    def mark_reminder_delivered(self, reminder_id: int) -> None:
+        self.db.execute("UPDATE reminders SET delivered = 1 WHERE id = ?", (reminder_id,))

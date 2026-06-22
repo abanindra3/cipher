@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import threading
+import time
+from datetime import datetime
 from pathlib import Path
 
 import uvicorn
@@ -9,6 +11,7 @@ import uvicorn
 from jarvis.backend.api.app import create_app
 from jarvis.backend.core.config import settings
 from jarvis.backend.core.logging import configure_logging, get_logger
+from jarvis.backend.db.repositories import NotificationRepository
 from jarvis.backend.voice import TextToSpeech, VoicePipeline, WakeWordListener
 from jarvis.backend.voice.audio_io import MicrophoneRecorder
 from jarvis.backend.voice.stt import SpeechToText
@@ -49,6 +52,27 @@ def start_voice_listener() -> WakeWordListener:
     listener = WakeWordListener(on_wake=on_wake, on_unauthorized=on_unauthorized)
     listener.start()
     return listener
+
+
+def start_reminder_watcher() -> threading.Thread:
+    repo = NotificationRepository()
+    tts = TextToSpeech()
+
+    def loop() -> None:
+        while True:
+            try:
+                for reminder in repo.due_reminders(datetime.now()):
+                    text = reminder["text"]
+                    tts.speak(f"Reminder, boss. {text}")
+                    repo.add("reminder", "Reminder", text)
+                    repo.mark_reminder_delivered(int(reminder["id"]))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Reminder watcher error: %s", exc)
+            time.sleep(20)
+
+    thread = threading.Thread(target=loop, name="reminder-watcher", daemon=True)
+    thread.start()
+    return thread
 
 
 def run_voice_debug() -> None:
@@ -114,6 +138,7 @@ def main() -> None:
         thread.start()
         logger.info("API server starting at http://%s:%s", settings.app_host, settings.app_port)
 
+    start_reminder_watcher()
     start_voice_listener()
     run_desktop()
 

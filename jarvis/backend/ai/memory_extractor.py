@@ -7,6 +7,7 @@ from jarvis.backend.db.repositories import MemoryRepository
 
 class MemoryExtractor:
     patterns = [
+        (re.compile(r"\bmy name is\s+([a-zA-Z .-]+?)(?:\s+and\b|,|\.|$)", re.I), "name"),
         (re.compile(r"\b(?:i am|i'm)\s+(?:based in|from|living in)\s+([a-zA-Z .-]+?)(?:\s+and\b|,|\.|$)", re.I), "location"),
         (re.compile(r"\b(?:i am|i'm)\s+preparing\s+for\s+([a-zA-Z0-9 .-]+?)(?:\s+and\b|,|\.|$)", re.I), "exam_goal"),
         (re.compile(r"\b(?:i want|i aim|my goal is)\s+(?:to become|to be|become)\s+an?\s+([a-zA-Z .-]+?)(?:\s+and\b|,|\.|$)", re.I), "career_goal"),

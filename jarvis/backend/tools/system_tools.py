@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
 import webbrowser
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
@@ -36,6 +38,13 @@ MAC_APP_ALIASES = {
 
 def _popen(command: list[str] | str) -> None:
     subprocess.Popen(command, shell=isinstance(command, str))  # noqa: S603
+
+
+def _open_url(url: str) -> None:
+    if platform.system().lower() == "darwin":
+        _popen(["open", url])
+    else:
+        webbrowser.open(url)
 
 
 def open_app(name: str) -> dict[str, Any]:
@@ -76,13 +85,13 @@ def close_app(name: str) -> dict[str, Any]:
 def open_website(url: str) -> dict[str, Any]:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    webbrowser.open(url)
+    _open_url(url)
     return {"message": f"Opened {url}", "url": url}
 
 
 def google_search(query: str) -> dict[str, Any]:
     url = f"https://www.google.com/search?q={quote_plus(query)}"
-    webbrowser.open(url)
+    _open_url(url)
     return {"message": f"Searching Google for {query}", "url": url}
 
 
@@ -95,7 +104,7 @@ def open_safari(url: str | None = None) -> dict[str, Any]:
             return {"error": "Safari is not installed or is not in /Applications."}
         _popen(["open", "-a", "Safari", target])
     else:
-        webbrowser.open(target)
+        _open_url(target)
     return {"message": f"Opened Safari at {target}", "url": target}
 
 
@@ -109,7 +118,7 @@ def open_youtube(query: str | None = None) -> dict[str, Any]:
         url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
     else:
         url = "https://www.youtube.com"
-    webbrowser.open(url)
+    _open_url(url)
     return {"message": "Opened YouTube", "url": url}
 
 
@@ -138,20 +147,29 @@ def create_folder(path: str) -> dict[str, Any]:
 
 
 def create_reminder(text: str, time: str) -> dict[str, Any]:
-    NotificationRepository().add("reminder", "Reminder created", f"{text} at {time}")
-    return {"message": f"Reminder saved: {text} at {time}"}
+    due_at = _parse_reminder_time(time)
+    reminder_id = NotificationRepository().add_reminder(text, due_at)
+    return {
+        "message": f"Reminder saved: {text} at {due_at.strftime('%I:%M %p on %d %b')}",
+        "id": reminder_id,
+        "due_at": due_at.isoformat(),
+    }
+
+
+def phone_call(target: str) -> dict[str, Any]:
+    url = f"tel:{quote_plus(target)}"
+    _open_url(url)
+    return {"message": f"Opening phone call to {target}", "url": url}
 
 
 def facetime_call(target: str) -> dict[str, Any]:
-    url = f"facetime://{quote_plus(target)}"
-    webbrowser.open(url)
-    return {"message": f"Opening FaceTime call to {target}", "url": url}
+    return phone_call(target)
 
 
 def send_sms(target: str, message: str) -> dict[str, Any]:
     separator = "&" if platform.system().lower() == "darwin" else "?"
     url = f"sms:{quote_plus(target)}{separator}body={quote_plus(message)}"
-    webbrowser.open(url)
+    _open_url(url)
     return {"message": f"Opening Messages to {target}", "url": url}
 
 
@@ -160,5 +178,61 @@ def open_whatsapp_message(phone: str, message: str) -> dict[str, Any]:
     if not cleaned:
         return {"error": "A phone number with country code is required for WhatsApp."}
     url = f"https://wa.me/{cleaned}?text={quote_plus(message)}"
-    webbrowser.open(url)
+    _open_url(url)
     return {"message": f"Opening WhatsApp message to {phone}", "url": url}
+
+
+def add_note(title: str, body: str | None = None) -> dict[str, Any]:
+    note_body = body or title
+    if platform.system().lower() == "darwin":
+        script = f'''
+        tell application "Notes"
+          activate
+          tell account "iCloud"
+            make new note at folder "Notes" with properties {{name:{_osascript_quote(title)}, body:{_osascript_quote(note_body)}}}
+          end tell
+        end tell
+        '''
+        completed = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)  # noqa: S603
+        if completed.returncode == 0:
+            return {"message": f"Added note: {title}"}
+        fallback = Path.home() / "Documents" / "JARVIS Notes.md"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        with fallback.open("a", encoding="utf-8") as file:
+            file.write(f"\n## {title}\n{note_body}\n")
+        return {"message": f"Notes app failed, saved note to {fallback}", "error": completed.stderr.strip()}
+    fallback = Path.home() / "Documents" / "JARVIS Notes.md"
+    fallback.parent.mkdir(parents=True, exist_ok=True)
+    with fallback.open("a", encoding="utf-8") as file:
+        file.write(f"\n## {title}\n{note_body}\n")
+    return {"message": f"Saved note to {fallback}"}
+
+
+def _parse_reminder_time(value: str) -> datetime:
+    now = datetime.now()
+    lowered = value.lower().strip()
+    match = re.search(r"in\s+(\d+)\s*(minute|minutes|min|hour|hours|hr|hrs)", lowered)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+        return now + (timedelta(hours=amount) if unit.startswith(("hour", "hr")) else timedelta(minutes=amount))
+
+    match = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", lowered)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        meridiem = match.group(3)
+        if meridiem == "pm" and hour != 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if due <= now:
+            due += timedelta(days=1)
+        return due
+    return now + timedelta(minutes=5)
+
+
+def _osascript_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
